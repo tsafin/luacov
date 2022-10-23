@@ -1,7 +1,7 @@
 package = "luacov"
 version = "scm-1"
 source = {
-   url = "git+https://github.com/lunarmodules/luacov.git",
+   url = "git+https://github.com/tsafin/luacov.git",
 }
 description = {
    summary = "Coverage analysis tool for Lua scripts",
