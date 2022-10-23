@@ -264,26 +264,45 @@ if cluacov_ok then
    deepactivelines = require("cluacov.deepactivelines")
 end
 
-function ReporterBase:_run_file(filename)
+function ReporterBase:_load_file(filename)
    local file, open_err = io.open(filename)
 
    if not file then
       self:on_file_error(filename, "open", util.unprefix(open_err, filename .. ": "))
+      return nil
+   end
+
+   local src, read_err = file:read("*a")
+
+   if not src then
+      self:on_file_error(filename, "read", read_err)
+      return nil
+   end
+
+   return src
+end
+
+function ReporterBase:_load_builtin_file(filename) --luacheck: no self
+   local ok, tnt = pcall(require, "tarantool")
+   if not ok or not tnt.debug then
+      return nil
+   end
+   if not filename:match("builtin/.*.lua") then
+      return nil
+   end
+   return tnt.debug.getsources('@' .. filename)
+end
+
+function ReporterBase:_run_file(filename)
+   local active_lines
+   local src = self:_load_builtin_file(filename) or self:_load_file(filename)
+   if not src then
       return
    end
 
-   local active_lines
-
    if cluacov_ok then
-      local src, read_err = file:read("*a")
-
-      if not src then
-         self:on_file_error(filename, "read", read_err)
-         return
-      end
-
-      src = src:gsub("^#![^\n]*", "")
-      local func, load_err = util.load_string(src, nil, "@file")
+      local src1 = src:gsub("^#![^\n]*", "")
+      local func, load_err = util.load_string(src1, nil, "@file")
 
       if not func then
          self:on_file_error(filename, "load", "line " .. util.unprefix(load_err, "file:"))
@@ -291,7 +310,6 @@ function ReporterBase:_run_file(filename)
       end
 
       active_lines = deepactivelines.get(func)
-      file:seek("set")
    end
 
    self:on_new_file(filename)
@@ -301,10 +319,7 @@ function ReporterBase:_run_file(filename)
    local line_nr = 1
    local scanner = LineScanner:new()
 
-   while true do
-      local line = file:read("*l")
-      if not line then break end
-
+   for line in string.gmatch(src, "([^\n]*)\n?") do
       local always_excluded, excluded_when_not_hit = scanner:consume(line)
       local hits = filedata[line_nr] or 0
       local included = not always_excluded and (not excluded_when_not_hit or hits ~= 0)
@@ -328,7 +343,6 @@ function ReporterBase:_run_file(filename)
       line_nr = line_nr + 1
    end
 
-   file:close()
    self:on_end_file(filename, file_hits, file_miss)
 end
 
